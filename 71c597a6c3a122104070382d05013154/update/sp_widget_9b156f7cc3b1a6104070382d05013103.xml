@@ -1,0 +1,1902 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sp_widget">
+    <sp_widget action="INSERT_OR_UPDATE">
+        <category>custom</category>
+        <client_script><![CDATA[api.controller=function($scope, $rootScope, $window, spModal, $timeout, $location) {
+  /* widget controller */
+  var c = this;
+	
+	c.mainHeaders = [
+		"Compañía",
+		"Fecha de Pago",
+		"Cuenta Bancaria",
+		"Nombre de Banco",
+		"Método de Pago",
+		"Documento de Compensación de Pagos",
+		"Moneda",
+		"Total Facturas",
+		"Importe Pago",
+	];
+	
+	c.nestedHeaders =[
+		'Compañía',
+		'Nombre de Compañía',
+		'Factura',
+		"Número de factura",
+		"Referencia de Pago",
+		'Fecha de Vencimiento',
+		'Moneda',
+		'Importe Factura',
+		'Importe Pagado',
+		'Fecha programada de pago',
+		'Fecha de Factura'
+	];
+	
+	c.filter = {
+		entity:'all',
+		invoice:'',
+		startDate: '',
+		endDate: '',
+		currency:'MXN'
+	}
+	
+	c.expandedRows = {}; 
+	c.isPaginating = false; 
+	c.lastPaginatedEntityIndex = null;
+
+	// Estado de carga
+	c.isLoading = false;
+	c.loadingMessage = 'Cargando datos...';
+
+	// Variables para paginación
+	c.entityIndexMap = {}; // Mapeo entre índice de fila y código de entidad
+	c.paginationInfo = {}; // Información de paginación por entidad
+
+	
+	var params = $location.search();
+  console.log('Parámetros de URL detectados:', params);
+	//alert('Parámetros de URL detectados:' + JSON.stringify(params));
+	
+	 $scope.$watch(function() {
+        return $location.search();
+    }, function(newParams, oldParams) {
+        if (!angular.equals(newParams, oldParams)) {
+						console.log('Cambio de parámetros de URL detectados:', params);
+						alert('Cambio de parámetros de URL detectados:' + JSON.stringify(params));
+        }
+    }, true);
+	
+	$scope.$watch('$viewContentLoaded', function() {
+    c.setupTableData();
+    
+    // Solo configurar el summary toggle, no los row togglers
+    $timeout(function() {
+        initializeSummaryToggle();
+    }, 0);
+});
+	
+	// Función para configurar datos de tabla y mapeo de entidades
+	c.setupTableData = function() {
+		c.clientTableData = [];
+		c.entityIndexMap = {};
+		c.paginationInfo = c.data.pagination || {};
+		
+		var tableData = JSON.parse(JSON.stringify(c.data.tableData));
+		delete tableData.isEmpty;
+		//console.log("CLIENT - tableData: " + JSON.stringify(tableData));
+		var index = 0;
+		for (var entityCode in tableData) {
+			if (tableData.hasOwnProperty(entityCode)) {
+				c.clientTableData.push(tableData[entityCode]);
+				c.entityIndexMap[index] = entityCode;
+				index++;
+			}
+		}
+		//console.log("CLIENT - entityIndexMap: " + JSON.stringify(c.entityIndexMap));
+	};
+	
+	// Función simplificada solo para el summary toggle
+	function initializeSummaryToggle() {
+    var summaryToggle = document.querySelector(".summary-toggle");
+    
+    if (summaryToggle && !summaryToggle.hasAttribute('data-listener-added')) {
+        summaryToggle.setAttribute('data-listener-added', 'true');
+        summaryToggle.addEventListener("click", function () {
+            var mainTable = document.querySelector(".main-table");
+            if (mainTable) {
+                if (mainTable.style.display === "none") {
+                    mainTable.style.display = "table";
+                    this.style.transform = "rotate(0deg)";
+                } else {
+                    mainTable.style.display = "none";
+                    this.style.transform = "rotate(-90deg)";
+                }
+            }
+        });
+    }
+}
+
+	/** = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+	
+	Funciones de Paginación
+	
+	= = = = = = = = = = = = = = = = == = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+	*/
+	
+	// Obtener filas paginadas para mostrar (las filas ya vienen paginadas del servidor)
+	c.getPaginatedRows = function(nestedRows, entityIndex) {
+		// Como las filas ya vienen paginadas del servidor, simplemente las devolvemos todas
+		return nestedRows || [];
+	};
+	
+	// Obtener número total de páginas para una entidad
+	c.getTotalPages = function(nestedRows, entityIndex) {
+		// Si se proporciona entityIndex, usarlo directamente
+		if (typeof entityIndex !== 'undefined') {
+			var entityCode = c.entityIndexMap[entityIndex];
+			if (entityCode && c.paginationInfo[entityCode]) {
+				return c.paginationInfo[entityCode].totalPages;
+			}
+		}
+		
+		// Fallback: usar el companyCode de las nestedRows para identificar la entidad
+		if (nestedRows && nestedRows.length > 0 && nestedRows[0].companyCode) {
+			var companyCode = nestedRows[0].companyCode;
+			if (c.paginationInfo[companyCode]) {
+				return c.paginationInfo[companyCode].totalPages;
+			}
+		}
+		
+		return 1;
+	};
+	
+	// Obtener página actual para una entidad
+	c.getCurrentPage = function(entityIndex) {
+		var entityCode = c.entityIndexMap[entityIndex];
+		if (entityCode && c.paginationInfo[entityCode]) {
+			return c.paginationInfo[entityCode].currentPage;
+		}
+		return 1;
+	};
+	
+	// Navegar a página anterior
+	c.previousPage = function(entityIndex) {
+		var entityCode = c.entityIndexMap[entityIndex];
+		if (entityCode && c.paginationInfo[entityCode]) {
+			var currentPage = c.paginationInfo[entityCode].currentPage;
+			if (currentPage > 1) {
+				c.loadPage(entityIndex, currentPage - 1);
+			}
+		}
+	};
+	
+	// Navegar a página siguiente
+	c.nextPage = function(entityIndex) {
+		//debugger;
+		var entityCode = c.entityIndexMap[entityIndex];
+		if (entityCode && c.paginationInfo[entityCode]) {
+			var currentPage = c.paginationInfo[entityCode].currentPage;
+			var totalPages = c.paginationInfo[entityCode].totalPages;
+			if (currentPage < totalPages) {
+				c.loadPage(entityIndex, currentPage + 1);
+			}
+		}
+	};
+	
+	// Cargar página específica desde el servidor
+c.loadPage = function(entityIndex, targetPage) {
+    var entityCode = c.entityIndexMap[entityIndex];
+    if (!entityCode) return;
+    
+    // NUEVO: Marcar que estamos paginando y guardar el índice
+    c.isPaginating = true;
+    c.lastPaginatedEntityIndex = entityIndex;
+
+    // Activar estado de carga
+    c.isLoading = true;
+    c.loadingMessage = 'Cargando página ' + targetPage + '...';
+    
+    var paginationRequest = {
+        action: 'pagination-request',
+        page: targetPage,
+        entityCode: getEntitySysID(entityCode),
+        currentSupplier: c.data.currentUserSuplierData.sysID,
+        selectedEntity: c.filter.entity,
+        selectedInvoice: c.filter.invoice.value || '',
+        selectedStartDate: formatDateToDDMMYYYY(c.filter.startDate),
+        selectedEndDate: formatDateToDDMMYYYY(c.filter.endDate),
+        currency: c.filter.currency
+    };
+    
+    c.server.get(paginationRequest).then(function(response) {
+        if (response.data.dataLoaded) {
+            // Actualizar solo la entidad específica
+            var newTableData = response.data.tableData;
+            delete newTableData.isEmpty;
+            
+            // Actualizar la entidad específica en clientTableData
+            for (var newEntityCode in newTableData) {
+                if (newTableData.hasOwnProperty(newEntityCode) && newEntityCode === entityCode) {
+                    c.clientTableData[entityIndex] = newTableData[newEntityCode];
+                    break;
+                }
+            }
+            
+            // Actualizar información de paginación
+            if (response.data.pagination) {
+                for (var paginationEntityCode in response.data.pagination) {
+                    if (response.data.pagination.hasOwnProperty(paginationEntityCode)) {
+                        c.paginationInfo[paginationEntityCode] = response.data.pagination[paginationEntityCode];
+                    }
+                }
+            }
+            
+            // Mensaje de éxito temporal
+            c.loadingMessage = 'Página cargada exitosamente';
+            $timeout(function() {
+                c.isLoading = false;
+                // NUEVO: Restaurar estado de expansión después de que Angular actualice la vista
+                $timeout(function() {
+                    restoreExpandedStateAfterPagination();
+                    c.isPaginating = false;
+                    c.lastPaginatedEntityIndex = null;
+                }, 100);
+            }, 500);
+        } else {
+            c.loadingMessage = 'No se encontraron datos';
+            $timeout(function() {
+                c.isLoading = false;
+                c.isPaginating = false;
+                c.lastPaginatedEntityIndex = null;
+            }, 1500);
+        }
+    }).catch(function(error) {
+        c.loadingMessage = 'Error al cargar la página';
+        $timeout(function() {
+            c.isLoading = false;
+            c.isPaginating = false;
+            c.lastPaginatedEntityIndex = null;
+        }, 2000);
+        console.error('Error en loadPage:', error);
+    });
+};
+
+	/** = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+	
+	Used for formatting string in front 
+	
+	= = = = = = = = = = = = = = = = == = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+	*/
+	
+	c.formatCurrency = function(amountString) {
+
+  var amount = parseFloat(amountString);
+
+  if (isNaN(amount)) {
+    return "Invalid Number";
+  }
+
+  var formattedAmount = amount.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+	
+  return formattedAmount;
+}
+
+ /** = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+	
+	Used for Process the filters selected
+	
+	= = = = = = = = = = = = = = = = == = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+	*/
+
+	
+	c.applyFilter = function(){
+		
+    c.expandedRows = {};
+    c.isPaginating = false;
+    c.lastPaginatedEntityIndex = null;
+		
+		// Activar estado de carga
+		c.isLoading = true;
+		c.loadingMessage = 'Aplicando filtros...';
+		
+		var selectedOptions = { 
+							 "action":'filter-applied',
+						   "selectedEntity" : c.filter.entity,
+						   "selectedInvoice" : c.filter.invoice.value || '',
+						   "selectedStartDate" : formatDateToDDMMYYYY(c.filter.startDate),
+						   "selectedEndDate" : formatDateToDDMMYYYY(c.filter.endDate),
+							 "currentSupplier": c.data.currentUserSuplierData.sysID,
+							 "currency": c.filter.currency
+					};
+			
+		c.server.get(selectedOptions).then(function(response){
+			if(response.data.dataLoaded){
+				// Actualizar datos y reconfigurar mapeo de entidades
+				c.data.tableData = response.data.tableData;
+				c.data.pagination = response.data.pagination;
+				c.setupTableData();
+				
+				// Mensaje de éxito temporal
+				c.loadingMessage = 'Datos cargados exitosamente';
+				$timeout(function() {
+					c.isLoading = false;
+				}, 800); // Mostrar mensaje de éxito por un momento
+			} else {
+				// En caso de no haber datos
+				c.clientTableData = [];
+				c.loadingMessage = 'No se encontraron datos';
+				$timeout(function() {
+					c.isLoading = false;
+				}, 1500);
+			}
+		}).catch(function(error) {
+			// Manejo de errores
+			c.loadingMessage = 'Error al cargar los datos';
+			$timeout(function() {
+				c.isLoading = false;
+			}, 2000);
+			console.error('Error en applyFilter:', error);
+		});
+	}; // - - - - - - -   E n d   o f   a p p l y F i l t e r   - - - - - - -  
+	
+	
+	 /** = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+	
+	Used to enable togglers
+	
+	= = = = = = = = = = = = = = = = == = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+	*/
+c.toggleRow = function($event, $index) {
+    $event.stopPropagation();
+    
+    var toggler = $event.target;
+    var expandableRow = toggler.closest('.expandable-row');
+    var nestedRow = expandableRow.nextElementSibling;
+    var nestedContent = nestedRow.querySelector('.nested-content');
+
+    if (nestedContent) {
+        var isCurrentlyExpanded = nestedContent.classList.contains('expanded');
+        if (isCurrentlyExpanded) {
+            delete c.expandedRows[$index];
+        } else {
+            c.expandedRows[$index] = true;
+        }
+        toggler.classList.toggle('expanded');
+        nestedContent.classList.toggle('expanded');
+
+        if (nestedContent.classList.contains('expanded')) {
+            nestedContent.style.maxHeight = 'none';
+            var tempHeight = nestedContent.scrollHeight + 50;
+            nestedContent.style.maxHeight = '0';
+            $timeout(function() {
+                nestedContent.style.maxHeight = tempHeight + "px";
+            }, 10);
+        } else {
+            nestedContent.style.maxHeight = nestedContent.scrollHeight + "px";
+            $timeout(function() {
+                nestedContent.style.maxHeight = "0";
+            }, 10);
+        }
+    }
+};
+	
+	/* 
+	*
+	*		Restore states for pagination
+	*/
+	
+	function restoreExpandedStateAfterPagination() {
+    if (!c.isPaginating || c.lastPaginatedEntityIndex === null) return;
+    
+    var entityIndex = c.lastPaginatedEntityIndex;
+    
+    if (c.expandedRows[entityIndex]) {
+        $timeout(function() {
+            var expandableRows = document.querySelectorAll('.expandable-row');
+            if (expandableRows[entityIndex]) {
+                var expandableRow = expandableRows[entityIndex];
+                var toggler = expandableRow.querySelector('.toggler');
+                var nestedRow = expandableRow.nextElementSibling;
+                var nestedContent = nestedRow ? nestedRow.querySelector('.nested-content') : null;
+                
+                if (toggler && nestedContent && !nestedContent.classList.contains('expanded')) {
+                    toggler.classList.add('expanded');
+                    nestedContent.classList.add('expanded');
+                    nestedContent.style.maxHeight = 'none';
+                    var tempHeight = nestedContent.scrollHeight + 50;
+                    nestedContent.style.maxHeight = '0';
+                    
+                    $timeout(function() {
+                        nestedContent.style.maxHeight = tempHeight + "px";
+                    }, 10);
+                    
+                    console.log('Estado de expansión restaurado para entidad índice:', entityIndex);
+                }
+            }
+        }, 50);
+    }
+}
+	
+	 /** = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+	
+	Used to format Dates before send to server
+	
+	= = = = = = = = = = = = = = = = == = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = = =
+	*/
+	
+	function formatDateToDDMMYYYY(dateObj) {
+  if (!(dateObj instanceof Date) || isNaN(dateObj.getTime())) {
+    return '';
+  }
+
+  var options = { year: 'numeric', month: '2-digit', day: '2-digit' };
+  var formattedDate = dateObj.toLocaleDateString('en-CA', options); 
+
+  var year = dateObj.getFullYear();
+  var month = (dateObj.getMonth() + 1).toString().padStart(2, '0'); 
+  var day = dateObj.getDate().toString().padStart(2, '0');
+
+  return year + '-' + month + '-' + day;
+
+}
+
+	
+	function getEntitySysID(entityCode){
+		for( var index in c.data.entitiesForSupplier ){
+			if( c.data.entitiesForSupplier[index].code == entityCode ){
+				return c.data.entitiesForSupplier[index].sysID
+			}
+		}
+		return '';
+	}
+
+};]]></client_script>
+        <controller_as>c</controller_as>
+        <css>/* Tema general*/&#13;
+		$primary-red: #F22331;&#13;
+		$primary-blue: #0000B3;&#13;
+&#13;
+		/* Tema para summary header */&#13;
+    $header-bg-summary: linear-gradient(135deg, #001B3A 0%, #0000B3 100%);&#13;
+    $header-color-summary: white;&#13;
+    $header-shadow-summary: 0 2px 4px rgba(0, 0, 0, 0.1);&#13;
+&#13;
+    /* Tema para headers anidados 1 */&#13;
+		$header-bg-primary: #0074D4;&#13;
+    $header-color-primary: white;&#13;
+    $header-border-primary: 2px solid #236592;&#13;
+&#13;
+    /* Tema para headers anidados 2 */&#13;
+    $header-bg-secondary:#0074D4;&#13;
+    $header-color-secondary: white;&#13;
+    $header-border-secondary: 2px solid #236592;&#13;
+&#13;
+    /* Propiedades comunes de headers */&#13;
+    $header-font-weight: 600;&#13;
+    $header-font-size: 13px;&#13;
+    $header-padding: 18px 20px;&#13;
+    $header-text-transform: uppercase;&#13;
+    $header-letter-spacing: 0.5px;&#13;
+    $header-font-size-nested: 12px;&#13;
+    $header-padding-nested: 16px 18px;&#13;
+&#13;
+&#13;
+body {&#13;
+    font-family: "Roboto", sans-serif;&#13;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);&#13;
+    color: #2c3e50;&#13;
+    margin: 0;&#13;
+    padding: 20px;&#13;
+    display: flex;&#13;
+    justify-content: center;&#13;
+    align-items: flex-start;&#13;
+    min-height: 100vh;&#13;
+}&#13;
+&#13;
+.main-container {&#13;
+    background-color: #ffffff;&#13;
+    padding: 30px;&#13;
+    border-radius: 12px;&#13;
+    box-shadow:&#13;
+        0 20px 40px rgba(0, 0, 0, 0.1),&#13;
+        0 6px 20px rgba(0, 0, 0, 0.06);&#13;
+    width: 100%;&#13;
+    /*max-width: 1400px;*/&#13;
+  	margin-top: 20px;&#13;
+   	margin-bottom: 20px;&#13;
+    overflow-x: auto;&#13;
+    border: 1px solid rgba(255, 255, 255, 0.2);&#13;
+    position: relative;&#13;
+}&#13;
+&#13;
+h1 {&#13;
+    color: #001B3A;&#13;
+    font-size: 28px;&#13;
+    font-weight: 600;&#13;
+    margin-top: 0;&#13;
+    margin-bottom: 25px;&#13;
+    border-bottom: 3px solid #0074D4;&#13;
+    padding-bottom: 15px;&#13;
+    text-align: left;&#13;
+    /*background: linear-gradient(0deg, $primary-red 0%, $primary-red 55%, $primary-blue 65%, $primary-blue 100%);&#13;
+    -webkit-background-clip: text;&#13;
+    -webkit-text-fill-color: transparent;&#13;
+    background-clip: text;*/&#13;
+}&#13;
+&#13;
+/* === LOADING OVERLAY STYLES === */&#13;
+.loading-overlay {&#13;
+    position: absolute;&#13;
+    top: 0;&#13;
+    left: 0;&#13;
+    right: 0;&#13;
+    bottom: 0;&#13;
+    background: rgba(255, 255, 255, 0.95);&#13;
+    backdrop-filter: blur(8px);&#13;
+    -webkit-backdrop-filter: blur(8px);&#13;
+    display: flex;&#13;
+    justify-content: center;&#13;
+    align-items: center;&#13;
+    z-index: 9999;&#13;
+    border-radius: 12px;&#13;
+    animation: fadeIn 0.3s ease-in-out;&#13;
+}&#13;
+&#13;
+.loading-container {&#13;
+    display: flex;&#13;
+    flex-direction: column;&#13;
+    align-items: center;&#13;
+    gap: 25px;&#13;
+    padding: 40px;&#13;
+    background: white;&#13;
+    border-radius: 16px;&#13;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);&#13;
+    border: 1px solid rgba(0, 116, 212, 0.1);&#13;
+}&#13;
+&#13;
+.loading-spinner {&#13;
+    display: inline-block;&#13;
+    position: relative;&#13;
+    width: 80px;&#13;
+    height: 80px;&#13;
+}&#13;
+&#13;
+.spinner-ring {&#13;
+    box-sizing: border-box;&#13;
+    display: block;&#13;
+    position: absolute;&#13;
+    width: 64px;&#13;
+    height: 64px;&#13;
+    margin: 8px;&#13;
+    border: 8px solid transparent;&#13;
+    border-radius: 50%;&#13;
+    animation: spin 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;&#13;
+}&#13;
+&#13;
+.spinner-ring:nth-child(1) {&#13;
+    border-top-color: #0074D4;&#13;
+    animation-delay: -0.45s;&#13;
+}&#13;
+&#13;
+.spinner-ring:nth-child(2) {&#13;
+    border-top-color: #3498db;&#13;
+    animation-delay: -0.3s;&#13;
+}&#13;
+&#13;
+.spinner-ring:nth-child(3) {&#13;
+    border-top-color: #74b9ff;&#13;
+    animation-delay: -0.15s;&#13;
+}&#13;
+&#13;
+.spinner-ring:nth-child(4) {&#13;
+    border-top-color: #a29bfe;&#13;
+    animation-delay: 0s;&#13;
+}&#13;
+&#13;
+.loading-text {&#13;
+    font-size: 18px;&#13;
+    font-weight: 600;&#13;
+    color: #001B3A;&#13;
+    text-align: center;&#13;
+    letter-spacing: 0.5px;&#13;
+    animation: pulse 2s ease-in-out infinite;&#13;
+}&#13;
+&#13;
+@keyframes spin {&#13;
+    0% {&#13;
+        transform: rotate(0deg);&#13;
+    }&#13;
+    100% {&#13;
+        transform: rotate(360deg);&#13;
+    }&#13;
+}&#13;
+&#13;
+@keyframes pulse {&#13;
+    0%, 100% {&#13;
+        opacity: 1;&#13;
+    }&#13;
+    50% {&#13;
+        opacity: 0.6;&#13;
+    }&#13;
+}&#13;
+&#13;
+@keyframes fadeIn {&#13;
+    from {&#13;
+        opacity: 0;&#13;
+        transform: scale(0.95);&#13;
+    }&#13;
+    to {&#13;
+        opacity: 1;&#13;
+        transform: scale(1);&#13;
+    }&#13;
+}&#13;
+&#13;
+/* Button disabled state */&#13;
+.btn[disabled], .btn:disabled {&#13;
+    opacity: 0.6;&#13;
+    cursor: not-allowed;&#13;
+    transform: none !important;&#13;
+}&#13;
+&#13;
+.filter-section {&#13;
+    display: flex;&#13;
+    flex-wrap: wrap;&#13;
+    gap: 20px;&#13;
+    align-items: flex-end;&#13;
+   	justify-content: space-between;&#13;
+    margin-bottom: 30px;&#13;
+    padding: 20px;&#13;
+    background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%);&#13;
+    border: 1px solid #e3e8ed;&#13;
+    border-radius: 8px;&#13;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);&#13;
+}&#13;
+&#13;
+.main-table{&#13;
+  	width: 100%;&#13;
+		overflow-x: scroll;&#13;
+}&#13;
+&#13;
+.filter-group {&#13;
+    display: flex;&#13;
+    flex-direction: column;&#13;
+}&#13;
+&#13;
+.filter-group label {&#13;
+    font-size: 13px;&#13;
+    color: #555;&#13;
+    margin-bottom: 8px;&#13;
+    font-weight: 500;&#13;
+    text-transform: uppercase;&#13;
+    letter-spacing: 0.5px;&#13;
+}&#13;
+&#13;
+.input-with-dropdown {&#13;
+    position: relative;&#13;
+    display: flex;&#13;
+}&#13;
+&#13;
+.input-with-dropdown input[type="text"],&#13;
+.input-with-dropdown input[type="date"],&#13;
+.input-with-dropdown select {&#13;
+/*    padding: 12px 30px 12px 15px;*/&#13;
+  	padding: 6px 20px 6px 15px;&#13;
+    border: 2px solid #e1e8ed;&#13;
+    border-radius: 6px;&#13;
+    font-size: 14px;&#13;
+    min-width: 150px;&#13;
+    transition: all 0.3s ease;&#13;
+    background: #fff;&#13;
+    font-family: "Roboto", sans-serif;&#13;
+    color: #2c3e50;&#13;
+    appearance: none;&#13;
+    -webkit-appearance: none;&#13;
+    -moz-appearance: none;&#13;
+}&#13;
+&#13;
+.input-with-dropdown input[type="text"]:focus,&#13;
+.input-with-dropdown input[type="date"]:focus,&#13;
+.input-with-dropdown select:focus {&#13;
+    outline: none;&#13;
+    border-color: #3498db;&#13;
+    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);&#13;
+    transform: translateY(-1px);&#13;
+}&#13;
+&#13;
+/* SN Record Picker Styles*/&#13;
+.sn-picker{&#13;
+	width: 250px !important;&#13;
+}&#13;
+&#13;
+&#13;
+/* Estilos específicos para select */&#13;
+.input-with-dropdown select {&#13;
+    padding-right: 15px;&#13;
+    cursor: pointer;&#13;
+    /*background-image: url('data:image/svg+xml;utf8,&lt;svg xmlns="http://www.w3.org/2000/svg" width="12" height="8" viewBox="0 0 12 8"&gt;&lt;path fill="%2395a5a6" d="M6 8L0 2h12z"/&gt;&lt;/svg&gt;');*/&#13;
+    background-repeat: no-repeat;&#13;
+    background-position: right 12px center;&#13;
+    background-size: 12px 8px;&#13;
+}&#13;
+&#13;
+.input-with-dropdown select:hover {&#13;
+    border-color: #3498db;&#13;
+}&#13;
+&#13;
+/* Estilos específicos para input date */&#13;
+.input-with-dropdown input[type="date"] {&#13;
+    padding-right: 15px;&#13;
+    cursor: pointer;&#13;
+}&#13;
+&#13;
+.input-with-dropdown input[type="date"]::-webkit-calendar-picker-indicator {&#13;
+    color: #95a5a6;&#13;
+    cursor: pointer;&#13;
+    margin-right: 5px;&#13;
+}&#13;
+&#13;
+.input-with-dropdown input[type="date"]::-webkit-inner-spin-button,&#13;
+.input-with-dropdown input[type="date"]::-webkit-outer-spin-button {&#13;
+    -webkit-appearance: none;&#13;
+    margin: 0;&#13;
+}&#13;
+&#13;
+.dropdown-arrow {&#13;
+    position: absolute;&#13;
+    right: 12px;&#13;
+    top: 50%;&#13;
+    transform: translateY(-50%);&#13;
+    color: #95a5a6;&#13;
+    font-size: 12px;&#13;
+    pointer-events: none;&#13;
+    display: none; /* Ocultar para elementos que ya no la necesitan */&#13;
+}&#13;
+&#13;
+.date-range {&#13;
+  	display: flex;&#13;
+    flex-direction: row;&#13;
+    align-items: center;&#13;
+}&#13;
+&#13;
+.date-range label {&#13;
+    margin-bottom: 0;&#13;
+    margin-right: 12px;&#13;
+}&#13;
+&#13;
+.date-separator {&#13;
+    margin: 0 10px;&#13;
+    color: #7f8c8d;&#13;
+    font-weight: 500;&#13;
+}&#13;
+&#13;
+.table-wrapper {&#13;
+    border-radius: 10px;&#13;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);&#13;
+    border: 1px solid #e8ecf0;&#13;
+    overflow: hidden; /* Hide overflow on wrapper */&#13;
+}&#13;
+&#13;
+/* Table scroll container */&#13;
+.table-scroll-container {&#13;
+    overflow-x: auto;&#13;
+    overflow-y: visible;&#13;
+}&#13;
+&#13;
+/* Encabezado resumen integrado */&#13;
+.summary-header {&#13;
+    display: flex;&#13;
+    justify-content: space-between;&#13;
+    align-items: center;&#13;
+    background: $header-bg-summary;&#13;
+    color: $header-color-summary;&#13;
+    padding: 18px 25px;&#13;
+    border-radius: 10px 10px 0 0;&#13;
+    box-shadow: $header-shadow-summary;&#13;
+    position: relative;&#13;
+    z-index: 20; /* Higher than any table headers */&#13;
+    min-width: 0; /* Allow flex items to shrink */&#13;
+}&#13;
+&#13;
+.summary-item {&#13;
+    display: flex;&#13;
+    flex-direction: column;&#13;
+    align-items: center;&#13;
+    text-align: center;&#13;
+    white-space: nowrap; /* Prevent text wrapping */&#13;
+}&#13;
+&#13;
+.summary-item:first-child {&#13;
+    align-items: flex-start;&#13;
+    text-align: left;&#13;
+}&#13;
+&#13;
+.summary-item:last-child {&#13;
+    align-items: flex-end;&#13;
+    text-align: right;&#13;
+}&#13;
+&#13;
+.summary-label {&#13;
+    font-size: 13px;&#13;
+    font-weight: 500;&#13;
+    margin-bottom: 6px;&#13;
+    opacity: 0.9;&#13;
+    text-transform: uppercase;&#13;
+    letter-spacing: 0.5px;&#13;
+}&#13;
+&#13;
+.summary-content {&#13;
+    display: flex;&#13;
+    align-items: center;&#13;
+    gap: 8px;&#13;
+}&#13;
+&#13;
+.summary-toggle {&#13;
+    font-size: 12px;&#13;
+    cursor: pointer;&#13;
+    transition: transform 0.2s ease;&#13;
+}&#13;
+&#13;
+.summary-value {&#13;
+    font-size: 16px;&#13;
+    font-weight: 700;&#13;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);&#13;
+}&#13;
+&#13;
+table {&#13;
+   	/*width: 100%;*/&#13;
+    border-collapse: collapse;&#13;
+    font-size: 14px;&#13;
+    background: white;&#13;
+}&#13;
+&#13;
+th,&#13;
+td {&#13;
+    padding: 18px 20px;&#13;
+    text-align: left;&#13;
+    border-bottom: 1px solid #e8ecf0;&#13;
+    vertical-align: middle;&#13;
+}&#13;
+&#13;
+thead th {&#13;
+    background: $header-bg-primary;&#13;
+    color: $header-color-primary;&#13;
+    font-weight: $header-font-weight;&#13;
+    font-size: $header-font-size;&#13;
+    text-transform: $header-text-transform;&#13;
+    letter-spacing: $header-letter-spacing;&#13;
+    position: sticky;&#13;
+    top: 0;&#13;
+    z-index: 10;&#13;
+    border-bottom: $header-border-primary;&#13;
+}&#13;
+&#13;
+tbody tr {&#13;
+    transition: all 0.2s ease;&#13;
+}&#13;
+&#13;
+tbody tr:hover {&#13;
+    background: linear-gradient(135deg, #f8f9ff 0%, #f0f4ff 100%);&#13;
+    /*transform: translateX(2px);*/&#13;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);&#13;
+}&#13;
+&#13;
+.expand-col {&#13;
+    width: 50px;&#13;
+    text-align: center !important;&#13;
+}&#13;
+&#13;
+.toggler {&#13;
+    cursor: pointer;&#13;
+    font-size: 16px;&#13;
+    color: #3498db;&#13;
+    display: inline-block;&#13;
+    transition: all 0.3s ease;&#13;
+    padding: 8px;&#13;
+/*    border-radius: 50%;&#13;
+    background: rgba(52, 152, 219, 0.1);*/&#13;
+}&#13;
+&#13;
+.toggler:hover {&#13;
+/*    background: rgba(52, 152, 219, 0.2);*/&#13;
+    transform: scale(1.1);&#13;
+}&#13;
+&#13;
+.toggler.expanded {&#13;
+    transform: rotate(90deg) scale(1.1);&#13;
+/*    background: rgba(52, 152, 219, 0.2);*/&#13;
+    color: #2980b9;&#13;
+}&#13;
+&#13;
+.nested-table-row {&#13;
+    background-color: #ffffff;&#13;
+}&#13;
+&#13;
+.nested-table-row td {&#13;
+    padding: 0;&#13;
+    border-bottom: 1px solid #e8ecf0;&#13;
+}&#13;
+&#13;
+.nested-content {&#13;
+    padding: 0;&#13;
+    background: linear-gradient(135deg, #fafbfc 0%, #f4f6f8 100%);&#13;
+    max-height: 0;&#13;
+    overflow: scroll;&#13;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);&#13;
+    border-left: 4px solid #3498db;&#13;
+		position: relative;&#13;
+}&#13;
+&#13;
+.nested-content.expanded {&#13;
+    padding: 25px;&#13;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.06);&#13;
+}&#13;
+&#13;
+.nested-content.paginating {&#13;
+    border-left: 4px solid #f39c12;&#13;
+    background: linear-gradient(135deg, #fff3cd 0%, #fef9e7 100%);&#13;
+}&#13;
+&#13;
+.nested-content.paginating::before {&#13;
+    content: "Cargando nueva página...";&#13;
+    position: absolute;&#13;
+    top: 10px;&#13;
+    right: 10px;&#13;
+    background: #f39c12;&#13;
+    color: white;&#13;
+    padding: 4px 8px;&#13;
+    border-radius: 4px;&#13;
+    font-size: 11px;&#13;
+    font-weight: 600;&#13;
+    opacity: 0.9;&#13;
+    z-index: 100;&#13;
+}&#13;
+&#13;
+.nested-content.smooth-transition {&#13;
+    transition: max-height 0.2s ease-in-out;&#13;
+}&#13;
+&#13;
+.toggler.auto-expanded {&#13;
+    color: #f39c12;&#13;
+    background: rgba(243, 156, 18, 0.1);&#13;
+    border-radius: 50%;&#13;
+    animation: autoExpandPulse 1s ease-in-out;&#13;
+}&#13;
+&#13;
+@keyframes autoExpandPulse {&#13;
+    0% { &#13;
+        background: rgba(243, 156, 18, 0.1);&#13;
+        transform: scale(1);&#13;
+    }&#13;
+    50% { &#13;
+        background: rgba(243, 156, 18, 0.3);&#13;
+        transform: scale(1.1);&#13;
+    }&#13;
+    100% { &#13;
+        background: rgba(243, 156, 18, 0.1);&#13;
+        transform: scale(1);&#13;
+    }&#13;
+}&#13;
+&#13;
+.nested-table {&#13;
+    width: 100%;&#13;
+    border: 1px solid #e1e8ed;&#13;
+    border-radius: 8px;&#13;
+    overflow: hidden;&#13;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);&#13;
+}&#13;
+&#13;
+.nested-table thead th {&#13;
+    background: $header-bg-secondary;&#13;
+    font-size: $header-font-size-nested;&#13;
+    padding: $header-padding-nested;&#13;
+    color: $header-color-secondary;&#13;
+    font-weight: $header-font-weight;&#13;
+    border-bottom: $header-border-secondary;&#13;
+    text-transform: $header-text-transform;&#13;
+    letter-spacing: $header-letter-spacing;&#13;
+}&#13;
+&#13;
+.nested-table td {&#13;
+    font-size: 13px;&#13;
+    padding: 16px 18px;&#13;
+    background: white;&#13;
+    transition: background-color 0.2s ease;&#13;
+}&#13;
+&#13;
+.nested-table tbody tr:hover td {&#13;
+    background: linear-gradient(135deg, #f8f9ff 0%, #f0f4ff 100%);&#13;
+}&#13;
+&#13;
+.nested-table tbody tr:last-child td {&#13;
+    border-bottom: none;&#13;
+}&#13;
+&#13;
+/* === PAGINATION STYLES === */&#13;
+.pagination-controls {&#13;
+    display: flex;&#13;
+    justify-content: center;&#13;
+    align-items: center;&#13;
+    gap: 15px;&#13;
+    margin-top: 20px;&#13;
+    padding: 15px;&#13;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);&#13;
+    border-radius: 8px;&#13;
+    border: 1px solid #dee2e6;&#13;
+}&#13;
+&#13;
+.pagination-btn {&#13;
+    background: linear-gradient(135deg, #0074D4 0%, #0056b3 100%);&#13;
+    color: white;&#13;
+    border: none;&#13;
+    padding: 8px 12px;&#13;
+    border-radius: 6px;&#13;
+    cursor: pointer;&#13;
+    font-size: 14px;&#13;
+    font-weight: 600;&#13;
+    transition: all 0.3s ease;&#13;
+    box-shadow: 0 2px 4px rgba(0, 116, 212, 0.2);&#13;
+    min-width: 40px;&#13;
+}&#13;
+&#13;
+.pagination-btn:hover:not(:disabled) {&#13;
+    background: linear-gradient(135deg, #0056b3 0%, #004085 100%);&#13;
+    transform: translateY(-1px);&#13;
+    box-shadow: 0 4px 8px rgba(0, 116, 212, 0.3);&#13;
+}&#13;
+&#13;
+.pagination-btn:disabled {&#13;
+    background: #6c757d;&#13;
+    cursor: not-allowed;&#13;
+    opacity: 0.6;&#13;
+    transform: none;&#13;
+    box-shadow: none;&#13;
+}&#13;
+&#13;
+.pagination-info {&#13;
+    font-size: 14px;&#13;
+    font-weight: 600;&#13;
+    color: #495057;&#13;
+    background: white;&#13;
+    padding: 8px 16px;&#13;
+    border-radius: 6px;&#13;
+    border: 1px solid #dee2e6;&#13;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);&#13;
+    white-space: nowrap;&#13;
+}&#13;
+&#13;
+/* Responsive adjustments */&#13;
+@media (max-width: 768px) {&#13;
+    .main-container {&#13;
+        padding: 20px;&#13;
+        margin: 10px;&#13;
+    }&#13;
+&#13;
+    .filter-section {&#13;
+        flex-direction: column;&#13;
+        align-items: stretch;&#13;
+    }&#13;
+&#13;
+    .filter-group {&#13;
+        width: 100%;&#13;
+    }&#13;
+&#13;
+    .date-range {&#13;
+        flex-direction: column;&#13;
+        align-items: stretch;&#13;
+    }&#13;
+&#13;
+    .date-range label {&#13;
+        margin-bottom: 8px;&#13;
+        margin-right: 0;&#13;
+    }&#13;
+&#13;
+    th,&#13;
+    td {&#13;
+        padding: 12px 8px;&#13;
+        font-size: 12px;&#13;
+    }&#13;
+&#13;
+    .summary-header {&#13;
+        flex-direction: column;&#13;
+        gap: 15px;&#13;
+        text-align: center;&#13;
+    }&#13;
+&#13;
+    .summary-item {&#13;
+        align-items: center !important;&#13;
+        text-align: center !important;&#13;
+    }&#13;
+    &#13;
+    .loading-container {&#13;
+        margin: 20px;&#13;
+        padding: 30px;&#13;
+    }&#13;
+    &#13;
+    .loading-spinner {&#13;
+        width: 60px;&#13;
+        height: 60px;&#13;
+    }&#13;
+    &#13;
+    .spinner-ring {&#13;
+        width: 48px;&#13;
+        height: 48px;&#13;
+        border-width: 6px;&#13;
+    }&#13;
+    &#13;
+    .loading-text {&#13;
+        font-size: 16px;&#13;
+    }&#13;
+&#13;
+    .pagination-controls {&#13;
+        flex-direction: column;&#13;
+        gap: 10px;&#13;
+    }&#13;
+&#13;
+    .pagination-btn {&#13;
+        padding: 10px 15px;&#13;
+        font-size: 16px;&#13;
+    }&#13;
+&#13;
+    .pagination-info {&#13;
+        font-size: 12px;&#13;
+        padding: 6px 12px;&#13;
+    }&#13;
+}&#13;
+&#13;
+/* Scrollbar styling */&#13;
+.table-scroll-container::-webkit-scrollbar {&#13;
+    height: 8px;&#13;
+}&#13;
+&#13;
+.table-scroll-container::-webkit-scrollbar-track {&#13;
+    background: #f1f1f1;&#13;
+    border-radius: 4px;&#13;
+}&#13;
+&#13;
+.table-scroll-container::-webkit-scrollbar-thumb {&#13;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);&#13;
+    border-radius: 4px;&#13;
+}&#13;
+&#13;
+.table-scroll-container::-webkit-scrollbar-thumb:hover {&#13;
+    background: linear-gradient(135deg, #5a67d8 0%, #667eea 100%);&#13;
+}&#13;
+&#13;
+&#13;
+/* CSS Para mensaje de error cuando no se ha encontrado entidad legal para supplier */&#13;
+&#13;
+.error-message {&#13;
+    margin: 20px 0;&#13;
+    padding: 20px;&#13;
+    background: #fff5f5;&#13;
+    border: 1px solid #fed7d7;&#13;
+    border-radius: 8px;&#13;
+    color: #c53030;&#13;
+}&#13;
+&#13;
+.error-container {&#13;
+    display: flex;&#13;
+    align-items: center;&#13;
+    gap: 15px;&#13;
+    padding: 10px;&#13;
+}&#13;
+&#13;
+.error-icon {&#13;
+    font-size: 24px;&#13;
+    flex-shrink: 0;&#13;
+}&#13;
+&#13;
+.error-text {&#13;
+    font-size: 16px;&#13;
+    font-weight: 500;&#13;
+    line-height: 1.5;&#13;
+}</css>
+        <data_table>sp_instance</data_table>
+        <demo_data/>
+        <description/>
+        <docs/>
+        <field_list/>
+        <has_preview>false</has_preview>
+        <id>invoice_visibility</id>
+        <internal>false</internal>
+        <link><![CDATA[function link(scope, element, attrs, controller) {  }]]></link>
+        <name>Invoice Visibility</name>
+        <option_schema/>
+        <public>false</public>
+        <roles/>
+        <script><![CDATA[(function() {
+
+	var	DEBUGGING = false;
+	var PAGE_SIZE = 25; // Variable global para el tamaño de ventana
+	
+	var tables= {
+		"users":"sys_user",
+		"invoices":"sn_shop_invoice",
+		"suplier": "sn_fin_supplier",
+		"baseInvoices":"sn_fin_base_invoice",
+		"invoicePaimentDetails":"sn_shop_invoice_payment_detail",
+		"supplierDetails":"sn_fin_supplier_detail",
+		"legalEntities":"sn_fin_legal_entity"
+	}
+	
+	data.tableData = {isEmpty: true};
+	data.dataLoaded = false;
+	data.pagination = {}; // Información de paginación por entidad
+	data.errorMessage = '';
+	//data.entitiesForSupplier = [];
+	
+	if( !input ){
+		// - - - - - - - - - - - - - - - - - -   Fisrt Step  - - - - - - - - - - - - - - - - - - - - - - 
+		// - - - - - - - - - - - - - - - - - - Get current user info  - - - - - - - - - - - - - - - - - -
+
+		var userGR = new GlideRecord(tables.users);
+		var currentUser = gs.getUserID();
+				userGR.get(currentUser);
+		
+		// Variable used to recover supplier's company name from table [core_company] used in user [sys_user] table
+		var userCompany = userGR.getValue('company');
+		if (!userCompany) {
+    		data.errorMessage = 'Error: El usuario no tiene una compañía asignada. Contacte al administrador del sistema.';
+		    data.dataLoaded = false;
+		    return; // Salir temprano si no hay compañía
+		}
+		
+		var suppliers = new GlideRecord(tables.suplier);
+		
+		// Variable used to recover supplier data from suplier table [sn_fin_supplier] used in invoices [sn_shop_invoice] table
+ 		var userSupplier = ''; 
+		var userSupplierLegalName = '';
+		var userSupplierNumber = '';
+
+			suppliers.addQuery('company', userCompany);
+			suppliers.setLimit(1);
+			suppliers.query();
+			if(suppliers.next()){
+    userSupplier = suppliers.getValue('sys_id');
+    userSupplierLegalName = suppliers.getValue('legal_name');
+    userSupplierNumber = suppliers.getValue('number');
+
+    // VALIDAR que los datos del supplier sean válidos
+    if (!userSupplier || !userSupplierLegalName || !userSupplierNumber) {
+        data.errorMessage = 'Error: Datos incompletos del proveedor. Contacte al administrador del sistema.';
+        data.dataLoaded = false;
+        return; // Salir temprano si faltan datos del supplier
+    }
+
+    if(DEBUGGING){
+        console.log("userSupplier: " + userSupplier + " userSupplierLegalName: " + userSupplierLegalName + " userSupplierNumber: " + userSupplierNumber);
+    }
+
+} else {
+    // NUEVO: Manejo del error cuando no se encuentra supplier
+    data.errorMessage = 'Error: No se encontró un proveedor asociado a su compañía. Contacte al administrador del sistema para configurar un proveedor válido.';
+    data.dataLoaded = false;
+    return; // Salir temprano si no hay supplier
+}
+		
+		
+		// Update User's Supplier Data
+		data.currentUserSuplierData = {
+			sysID: userSupplier,
+			legalName: userSupplierLegalName, 
+			number: userSupplierNumber
+		};
+		
+		// - - - - - - - - - - - - - - - - - - -   Second Step  - - - - - - - - - - - - - - - - - - - - -
+		// - - - - - - - - - - - - - - - Get current user CEMEX entities  - - - - - - - - - - - - - - -
+		
+		var entitiesList = [];
+		var cmxCompaniesForUser = new GlideRecord(tables.supplierDetails);
+		cmxCompaniesForUser.addQuery('supplier', data.currentUserSuplierData.sysID)
+		cmxCompaniesForUser.query();
+		
+		var hasEntities = false;
+		while( cmxCompaniesForUser.next() ){
+    		hasEntities = true;
+		    entitiesList.push({
+    		    "sysID": cmxCompaniesForUser.getValue('legal_entity'),
+        		"name" : cmxCompaniesForUser.getDisplayValue('legal_entity'),
+		        "code" : String(cmxCompaniesForUser.legal_entity.erp_company_code)
+    		});
+		}
+		if (!hasEntities || entitiesList.length === 0) {
+    	data.errorMessage = 'Error: No se encontraron entidades legales asociadas al proveedor.';
+    	data.dataLoaded = false;
+    	return; 
+		}
+
+		data.entitiesForSupplier = entitiesList;
+		if(DEBUGGING){
+			console.log("Company: " + data.currentUserSuplierData.sysID + " entitiesList: " + JSON.stringify(entitiesList));
+		}
+		
+		// - - - - - - - - - - - - - - - - - - -   Third Step  - - - - - - - - - - - - - - - - - - - - -
+		// - - - - - - - - - - - - - - - Load paid invoices with pagination - - - - - - - - - - - - - - -
+		
+		loadTableDataWithPagination(data.currentUserSuplierData.sysID, 'all', '', gs.beginningOfLast3Months(), gs.endOfLast3Months(), 0, PAGE_SIZE, '','MXN');
+
+	}  //------ End Of !input ------ 
+	
+	
+	if( input && input.action == 'filter-applied'){
+		if(DEBUGGING){
+			console.log("SERVER - Input: " + JSON.stringify(input));
+		}
+		loadTableDataWithPagination(input.currentSupplier, input.selectedEntity, input.selectedInvoice, input.selectedStartDate, input.selectedEndDate, 0, PAGE_SIZE, '', input.currency);
+		
+		data.updatedData = {
+			updated: true
+		};
+
+	}
+	
+if( input && input.action == 'pagination-request'){
+	if(DEBUGGING){
+		console.log("SERVER - Pagination Request: " + JSON.stringify(input));		
+	}
+
+	
+	// PRESERVAR los datos existentes antes de la paginación
+	var existingTableData = JSON.parse(JSON.stringify(data.tableData || {}));
+	var existingPagination = JSON.parse(JSON.stringify(data.pagination || {}));
+	if(DEBUGGING){
+		console.log("SERVER - PRESERVATION: \nexistingTableData: " + JSON.stringify(existingTableData) + "\nexistingPagination: " + JSON.stringify(existingPagination));
+		console.log("SERVER - Calling Data with: " + "\ninput.currentSupplier: " + input.currentSupplier + "\ninput.entityCode: " + input.entityCode + "\ninput.selectedInvoice: " + input.selectedInvoice + "\ninput.selectedStartDate: " + input.selectedStartDate + "\ninput.selectedEndDate: " + input.selectedEndDate + "\nstartWindow: " + startWindow + "\nPAGE_SIZE: " + PAGE_SIZE);
+	}
+	// Eliminar isEmpty si existe en la copia
+	delete existingTableData.isEmpty;
+	
+	var startWindow = (input.page - 1) * PAGE_SIZE;
+	
+	// Cargar SOLO la entidad específica que se está paginando
+	var entityResult = loadSingleEntityData(
+		input.currentSupplier, 
+		input.entityCode, 
+		input.selectedInvoice, 
+		input.selectedStartDate, 
+		input.selectedEndDate, 
+		startWindow, 
+		PAGE_SIZE,
+		input.currency
+	);
+	
+	if(DEBUGGING){
+		console.log("SERVER - entityResult: " + JSON.stringify(entityResult));
+	}
+	
+	if (!entityResult.isEmpty) {
+		// MERGE: Actualizar solo la entidad específica, mantener las demás
+		for (var entityCode in entityResult.data) {
+			if (entityResult.data.hasOwnProperty(entityCode)) {
+				existingTableData[entityCode] = entityResult.data[entityCode];
+			}
+		}
+		
+		// MERGE: Actualizar solo la información de paginación de esta entidad
+		for (var paginationEntityCode in entityResult.pagination) {
+			if (entityResult.pagination.hasOwnProperty(paginationEntityCode)) {
+				existingPagination[paginationEntityCode] = entityResult.pagination[paginationEntityCode];
+			}
+		}
+		
+		// Restaurar la estructura completa con los datos mergeados
+		data.tableData = existingTableData;
+		data.pagination = existingPagination;
+		data.dataLoaded = true;
+		
+		if(DEBUGGING){
+			console.log("SERVER - Pagination Merge Complete. Updated entity: " + input.entityCode);
+		}
+	}
+	
+	data.updatedData = {
+		updated: true
+	};
+}
+	
+	
+	/* 
+	*	 Nueva función que maneja paginación y múltiples entidades
+	*  Parámetros adicionales: startWindow, endWindow, specificEntityCode (para paginación específica)
+	*/
+	
+function loadTableDataWithPagination(supplierIDParam, entityIDParam, invoiceParam, begginingDate, finalDate, startWindow, windowSize, specificEntityCode, selectedCurrency ) {
+
+	var supplier = supplierIDParam;
+	var legalEntity = entityIDParam || 'all';
+	var invoice = invoiceParam || '';
+	var startDate = begginingDate || '';
+	var endDate = finalDate || '';
+	var startWin = startWindow || 0;
+	var winSize = windowSize || PAGE_SIZE;
+	var currency = selectedCurrency;
+	
+	if(DEBUGGING){
+		console.log("CLIENT - Currency on loadTableDataWithPagination: " + currency);
+		console.log("Running loadTableDataWithPagination ... \nsupplier: " + supplier + "\nlegalEntity " + legalEntity + "\nstartDate: " + startDate  + "\nendDate: " + endDate + "\nstartWindow: " + startWin + "\nwindowSize: " + winSize);			
+	}
+
+	var tableData = {isEmpty: true};
+	var paginationInfo = {};
+
+	if (legalEntity == 'all' && !specificEntityCode) {
+		// Caso: Todas las entidades - reconstruir entitiesForSupplier localmente
+		var entitiesList = [];
+		var cmxCompaniesForUser = new GlideRecord(tables.supplierDetails);
+		cmxCompaniesForUser.addQuery('supplier', supplier);
+		cmxCompaniesForUser.query();
+		while(cmxCompaniesForUser.next()) {
+			entitiesList.push({
+				"sysID": cmxCompaniesForUser.getValue('legal_entity'),
+				"name": cmxCompaniesForUser.getDisplayValue('legal_entity')
+			});
+		}
+		
+		for (var i = 0; i < entitiesList.length; i++) {
+			var entity = entitiesList[i];
+			var entityResult = loadSingleEntityData(supplier, entity.sysID, invoice, startDate, endDate, startWin, winSize, currency );
+			
+			if (!entityResult.isEmpty) {
+				// Merge results
+				for (var entityCode in entityResult.data) {
+					if (entityResult.data.hasOwnProperty(entityCode)) {
+						tableData[entityCode] = entityResult.data[entityCode];
+						tableData.isEmpty = false;
+					}
+				}
+				// Merge pagination info
+				for (var entityCode in entityResult.pagination) {
+					if (entityResult.pagination.hasOwnProperty(entityCode)) {
+						paginationInfo[entityCode] = entityResult.pagination[entityCode];
+					}
+				}
+			}
+		}
+	} else {
+		// Caso: Entidad específica o paginación de entidad específica
+		var targetEntity = specificEntityCode ? specificEntityCode : legalEntity;
+		var entityResult = loadSingleEntityData(supplier, targetEntity, invoice, startDate, endDate, startWin, winSize, currency);
+		
+		if (!entityResult.isEmpty) {
+			tableData = entityResult.data;
+			paginationInfo = entityResult.pagination;
+			tableData.isEmpty = false;
+		}
+	}
+	
+	if(!tableData.isEmpty){		
+		data.dataLoaded = true;
+		data.tableData = tableData;
+		data.pagination = paginationInfo;
+	}
+	
+	if(DEBUGGING){
+		console.log("Server - isEmpty: " + tableData.isEmpty + "\nPagination Info: " + JSON.stringify(paginationInfo) + "data.tableData: " + JSON.stringify(data.tableData));
+	}
+}
+
+	
+	/*
+	* Función para cargar datos de una sola entidad con paginación
+	*/
+function loadSingleEntityData(supplier, legalEntity, invoice, startDate, endDate, startWindow, windowSize, currency) {
+	console.log("SERVER - currencySelected: " + currency);
+	var totalCount = 0;
+	var totalSum = 0;
+	var totalSumArr = [];
+	var totalPaid = 0;
+	var result = {
+		isEmpty: true,
+		data: {},
+		pagination: {}
+	};
+
+	//** Count total invoiced amounts and total number of rows to define the pagination **
+	
+	// Define variable aggregates to control aggregate operations
+	var aggregates = {
+		count:{
+				operation: 'COUNT',
+				field: 'sys_id',
+				groupBy: 'sys_id',
+				result: ''
+		},
+		sum:{
+				operation: 'SUM',
+				field: 'invoice_amount.amount',
+				groupBy: 'supplier',
+				result: ''
+		}
+	};
+
+for( var aggr in aggregates ){
+  var countQuery = new GlideAggregate("sn_shop_invoice");
+  if (legalEntity != "all") {
+    countQuery.addQuery("legal_entity", legalEntity);
+  }
+  if (invoice != "") {
+    countQuery.addQuery("sys_id", invoice);
+  }
+  if (startDate != "") {
+    countQuery.addQuery("payment_date", ">=", startDate);
+  }
+  if (endDate != "") {
+    countQuery.addQuery("payment_date", "<=", endDate);
+  }
+  countQuery.addQuery("invoice_amount", ">", currency + ",0");
+  countQuery.addQuery("supplier", supplier);
+  countQuery.addAggregate(aggregates[aggr].operation, aggregates[aggr].field);
+  countQuery.groupBy(aggregates[aggr].groupBy);
+	countQuery.query();
+  if (countQuery.next()) {
+    aggregates[aggr].result = aggregates[aggr].operation == 'COUNT'? countQuery.getRowCount() : countQuery.getAggregate(aggregates[aggr].operation, aggregates[aggr].field)
+  }
+}
+	
+	/* Total Paid Aggregate: */
+	
+	var tables = {
+    shopInvoices: 'sn_shop_invoice',
+    invoiceDetails: 'sn_shop_invoice_payment_detail'
+	};
+	
+	//supplier =32afd76a833a4a109db7fba6feaad320
+	var invoiceDetails = new GlideAggregate('sn_shop_invoice_payment_detail');
+	
+	if (legalEntity != "all") {
+			invoiceDetails.addQuery('invoice.legal_entity', legalEntity);
+	}
+	
+	if (invoice != "") {
+    invoiceDetails.addQuery("invoice", invoice);
+  }
+  if (startDate != "") {
+    invoiceDetails.addQuery("payment_date", ">=", startDate);
+  }
+  if (endDate != "") {
+    invoiceDetails.addQuery("payment_date", "<=", endDate);
+  }
+	invoiceDetails.addQuery('supplier', supplier);
+	invoiceDetails.addQuery('amount_paid', '>', 'MXN,0');
+	invoiceDetails.addAggregate('SUM', 'amount_paid.amount');
+	invoiceDetails.orderBy('u_legal_entity');
+	invoiceDetails.query();
+	if( invoiceDetails.next() ){
+			totalPaid = invoiceDetails.getAggregate('SUM', 'amount_paid.amount');
+			console.log("SERVER - RowCount: " + invoiceDetails.getRowCount() + "\nTotal: " + totalPaid);
+	}
+	
+	/*End of Total Paid Aggregate*/ 
+	
+	totalCount = aggregates.count.result;
+	totalSum = aggregates.sum.result;
+	if(DEBUGGING){
+			console.log("SERVER - aggregates: " + JSON.stringify(aggregates) + "\ntotalCount: " + totalCount + '\ntotalSum: ' + totalSum + "\nTotalPaid: " + totalPaid );
+	}
+
+	if (totalCount === 0) {
+		return result;
+	}
+	
+	// Ahora, obtener los datos paginados usando chooseWindow
+	var invoices = new GlideRecord('sn_shop_invoice');
+	if (legalEntity != 'all') {
+		invoices.addQuery('legal_entity', legalEntity);
+	}
+	if (invoice != '') {
+		invoices.addQuery('sys_id', invoice);
+	}
+	if (startDate != '') {
+		invoices.addQuery('payment_date', '>=', startDate);
+	}
+	if (endDate != '') {
+		invoices.addQuery('payment_date', '<=', endDate);
+	}
+	invoices.addQuery('invoice_amount','>', currency +',0');
+	invoices.addQuery('supplier', supplier);
+	invoices.orderBy('legal_entity');
+	invoices.orderBy('number');
+	invoices.chooseWindow(startWindow, startWindow + windowSize);
+	invoices.query();
+	
+	var index = startWindow;
+	var currentEntityCode = null;
+	
+	while (invoices.next()) {
+		var entityBuffer = String(invoices.legal_entity.erp_company_code);
+		var retrieveData = loadDataBuffer(invoices.getUniqueValue());
+
+		var dataBuffer = retrieveData.dataToBuffer;
+
+		var childTable = {
+			companyCode: entityBuffer,
+			legalEntity: String(invoices.legal_entity.legal_name),
+			invoice: invoices.getValue('number'),
+			invoiceNumber: invoices.getValue('supplier_invoice_number'),
+			paymentReference: dataBuffer.compensationNumber || '-',
+			dueDate: invoices.getValue('due_date'),
+			currency: String(invoices.invoice_amount.currency),
+			amount: String(invoices.invoice_amount.amount) || '0',
+			amountPaid: dataBuffer.amountPaid || '0',
+			scheduledPaymentDate: dataBuffer.scheduledPaymentDate || invoices.getValue('u_estimated_payment_date') || '-',
+			invoiceDate: invoices.getValue('invoice_date') || '-',
+			"index": index
+		};
+		console.log("SERVER - Just to assign: " + totalPaid);
+		var parentTable = {
+			companyCode: entityBuffer,
+			paymentMethod: dataBuffer.paymentMethod || '-',
+			accountNumber: dataBuffer.payBankID || '-',
+			paymentClearingDoc: dataBuffer.paymentClearingDoc || '-',
+			totalAmount: totalSum,
+			totalAmountPaid: totalPaid,
+			bankName: dataBuffer.paymentBankAccount || '-',
+			paymentDate: invoices.getValue('payment_date'),
+			currency: String(invoices.invoice_amount.currency),
+			nestedRows: [childTable]
+		};
+
+		if (result.data[entityBuffer] == undefined) {
+			result.isEmpty = false;
+			currentEntityCode = entityBuffer;
+			result.data[entityBuffer] = [parentTable];
+			
+			// Configurar información de paginación para esta entidad
+			result.pagination[entityBuffer] = {
+				totalRecords: totalCount,
+				totalPages: Math.ceil(totalCount / windowSize),
+				currentPage: Math.floor(startWindow / windowSize) + 1,
+				pageSize: windowSize
+			};
+		} else {
+			result.data[entityBuffer][0].nestedRows.push(childTable);
+			//result.data[entityBuffer][0].totalAmount = totalSum; //String((parseFloat(result.data[entityBuffer][0].totalAmount) + parseFloat(childTable.amount)).toFixed(2));
+			//result.data[entityBuffer][0].totalAmountPaid = String((parseFloat(result.data[entityBuffer][0].totalAmountPaid) + parseFloat(childTable.amountPaid)).toFixed(2));
+		}
+		index++;
+	}
+	
+	return result;
+}
+
+	
+	// Función original mantenida para compatibilidad si es necesaria
+	function loadTableData( supplierIDParam, entityIDParam, invoiceParam ,begginingDate, finalDate ){
+		// Redirigir a la nueva función con parámetros de paginación por defecto
+		loadTableDataWithPagination(supplierIDParam, entityIDParam, invoiceParam, begginingDate, finalDate, 0, PAGE_SIZE);
+	}
+	
+	function loadDataBuffer(invoiceID){
+		var answer = {found: false, "dataToBuffer":{}};
+		var dataToBuffer = {}
+				//console.log("Running loadDataBuffer - invoiceID: " + invoiceID);
+		var invoiceDetails = new GlideRecord('sn_shop_invoice_payment_detail');
+		invoiceDetails.addQuery('invoice', invoiceID);
+		invoiceDetails.orderBy('invoice');
+		invoiceDetails.query();
+		if(invoiceDetails.next()){
+
+			dataToBuffer = {
+				paymentMethod: invoiceDetails.getDisplayValue('payment_method'),
+				paymentBankAccount: '0777', //String(invoiceDetails.u_payment_bank_account.bank_name),
+				payBankID: invoiceDetails.getValue('u_pay_bank_id'),
+				compensationNumber: invoiceDetails.getValue('payment_reference_id'),
+				paymentClearingDoc: invoiceDetails.getValue('u_payment_clearing_document'),
+				amountPaid: String(invoiceDetails.amount_paid.amount),
+				legalEntity: String(invoiceDetails.invoice.legal_entity.legal_name),
+				scheduledPaymentDate: invoiceDetails.getValue('scheduled_payment_date'),
+				// Third Table elements 
+				invoiceNumber: String(invoiceDetails.invoice.supplier_invoice_number),
+				invoice: invoiceDetails.getDisplayValue('invoice'),
+				dueDate: String(invoiceDetails.invoice.due_date),
+				invoiceDate: String(invoiceDetails.invoice.invoice_date),
+				currency: String(invoiceDetails.invoice.invoice_amount.currency),
+				amount: String(invoiceDetails.invoice.invoice_amount.amount)
+			}
+
+			answer.found = true;
+			answer.dataToBuffer = dataToBuffer;
+		}
+			//console.log("Running loadDataBuffer - dataToBuffer: " + JSON.stringify(dataToBuffer));
+			return answer;
+	}
+})();]]></script>
+        <servicenow>false</servicenow>
+        <sys_class_name>sp_widget</sys_class_name>
+        <sys_created_by>admin</sys_created_by>
+        <sys_created_on>2025-05-26 21:16:20</sys_created_on>
+        <sys_id>9b156f7cc3b1a6104070382d05013103</sys_id>
+        <sys_mod_count>72</sys_mod_count>
+        <sys_name>Invoice Visibility</sys_name>
+        <sys_package display_value="Testing 2" source="x_887770_testing_2">71c597a6c3a122104070382d05013154</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="Testing 2">71c597a6c3a122104070382d05013154</sys_scope>
+        <sys_update_name>sp_widget_9b156f7cc3b1a6104070382d05013103</sys_update_name>
+        <sys_updated_by>admin</sys_updated_by>
+        <sys_updated_on>2025-07-10 23:39:40</sys_updated_on>
+        <template><![CDATA[<div class="main-container">
+            <h1>Documentos Pagados</h1>
+  					<!--h4> {{c.data.currentUserSuplierData.number}}  - {{c.data.currentUserSuplierData.legalName}} </h4-->
+            
+            <!-- Loading Overlay -->
+            <div class="loading-overlay" ng-show="c.isLoading">
+                <div class="loading-container">
+                    <div class="loading-spinner">
+                        <div class="spinner-ring"></div>
+                        <div class="spinner-ring"></div>
+                        <div class="spinner-ring"></div>
+                        <div class="spinner-ring"></div>
+                    </div>
+                    <div class="loading-text">{{c.loadingMessage}}</div>
+                </div>
+            </div>
+  
+  
+  				<div class="error-message" ng-show="c.data.errorMessage">
+				    <div class="error-container">
+        				<div class="error-icon">⚠️</div>
+				        <div class="error-text">{{c.data.errorMessage}}</div>
+				    </div>
+				</div>
+
+            <div class="filter-section">
+                <div class="filter-group">
+                    <label for="proveedor">Nombre de Compañía</label>
+                    <div class="input-with-dropdown">
+                        <select id="proveedor" name="proveedor" ng-model="c.filter.entity" ng-disabled="c.data.errorMessage">
+                          <option value="all">Todas</option>
+                          <option ng-repeat="entity in c.data.entitiesForSupplier" value="{{entity.sysID}}">{{entity.name}}</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label for="proveedor">Moneda</label>
+                    <div class="input-with-dropdown">
+                        <select id="currency" name="currency" ng-model="c.filter.currency" ng-disabled="c.data.errorMessage">
+                          <option value="MXN">MXN</option>
+                          <option value="USD">USD</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label for="invoice-number">Número de factura</label>
+                    <div class="input-with-dropdown sn-picker">
+                    <sn-record-picker
+                                      field="c.filter.invoice" 
+                                      table="'sn_shop_invoice'"
+                                      placeholder="Buscar factura"
+                                      default-query="'supplier=' + c.data.currentUserSuplierData.sysID + '^payment_dateISNOTEMPTY'"
+                                      display-field="'number'" 
+                                      display-fields="'supplier_invoice_number'"
+                                      value-field="'sys_id'" 
+                                      search-fields="'number,supplier_invoice_number'" 
+                                      page-size="100"
+                                      sn-disabled="c.data.errorMessage">
+                    </sn-record-picker>
+                        <!--input type="text" id="invoice-number" name="invoice-number" ng-model="c.filter.invoice"/-->
+                            <!--option ng-repeat="invoice in c.data.invoices" value="{{invoice.number}}">{{invoice.number}}</option-->
+                    </div>
+                </div>
+                <div class="filter-group">
+                    <label for="fecha-pago-inicio">Fecha de Pago</label>
+                  <div class="date-range">
+                    <div class="input-with-dropdown">
+                        <input type="date" id="fecha-pago-inicio" name="fecha-pago-inicio" ng-model="c.filter.startDate" ng-disabled="c.data.errorMessage" />
+                    </div>
+                    <span class="date-separator">a</span>
+                    <div class="input-with-dropdown">
+                        <input type="date" id="fecha-pago-fin" name="fecha-pago-fin" ng-model="c.filter.endDate" ng-disabled="c.data.errorMessage"/>
+                    </div>
+              		</div>
+                </div>
+              	<div class="filter-group">
+                  <button class="btn btn-primary" ng-click="c.applyFilter()" ng-disabled="c.data.errorMessage">
+                      <span ng-show="!c.isLoading">Aplicar filtros</span>
+                      <span ng-show="c.isLoading">Cargando...</span>
+                  </button>
+              </div>
+            </div>
+
+            <div class="table-wrapper">
+                <!-- Encabezado resumen integrado -->
+                <div class="summary-header">
+                    <div class="summary-item">
+                        <span class="summary-label">Supplier</span>
+                        <div class="summary-content">
+                            <span class="summary-toggle">▼</span>
+                            <span class="summary-value">{{c.data.currentUserSuplierData.number}}  - {{c.data.currentUserSuplierData.legalName}}</span>
+                        </div>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label"></span>
+                        <span class="summary-value"></span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label"></span>
+                        <span class="summary-value"></span>
+                    </div>
+                </div>
+
+                <!-- Table scroll container -->
+                <div class="table-scroll-container">
+                <table class="main-table">
+                    <thead>
+                        <tr>
+                            <th class="expand-col"></th>
+                          <th ng-repeat="headerLabel in c.mainHeaders"> {{headerLabel}} </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Fila 1 -->
+                        <tr class="expandable-row" ng-repeat-start="entity in c.clientTableData" >
+                            <td class="expand-col"><span class="toggler" ng-click="c.toggleRow($event, $index)">►</span></td>
+                            <td>{{entity[0].companyCode}}</td>
+                            <td>{{entity[0].paymentDate}}</td>
+                            <td>{{entity[0].accountNumber}}</td>
+                            <td>{{entity[0].bankName}}</td>
+                            <td>{{entity[0].paymentMethod}}</td>
+                            <td>{{entity[0].paymentClearingDoc}}</td>
+                            <td>{{entity[0].currency}}</td>
+                            <td>{{c.formatCurrency(entity[0].totalAmount)}}</td>
+                            <td>{{c.formatCurrency(entity[0].totalAmountPaid)}}</td>
+                        </tr>
+                        <tr class="nested-table-row" ng-repeat-end>
+                            <td colspan="12">
+                                <div class="nested-content">
+                                    <table class="nested-table">
+                                        <thead>
+                                            <tr>
+                                              <th ng-repeat="headerLabel in c.nestedHeaders">{{headerLabel}}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr ng-repeat="colum in c.getPaginatedRows(entity[0].nestedRows, $index)">
+                                              <td>{{colum.companyCode}}</td>
+                                              <td>{{colum.legalEntity}}</td>
+                                              <td>{{colum.invoice}}</td>
+                                              <td>{{colum.invoiceNumber}}</td>
+                                              <td>{{colum.paymentReference}}</td>
+                                              <td>{{colum.dueDate}}</td>
+                                              <td>{{colum.currency}}</td>
+                                              <td>{{c.formatCurrency(colum.amount)}}</td>
+                                              <td>{{c.formatCurrency(colum.amountPaid)}}</td>
+                                              <td>{{colum.scheduledPaymentDate}}</td>
+                                              <td>{{colum.invoiceDate}}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                    <!-- Pagination Controls -->
+                                    <div class="pagination-controls" ng-show="c.getTotalPages(entity[0].nestedRows, $index) > 1">
+                                        <button class="pagination-btn"  ng-click="c.previousPage($index)" ng-disabled="c.getCurrentPage($index) === 1">
+                                            ◀
+                                        </button>
+                                        <span class="pagination-info">
+                                            Página {{c.getCurrentPage($index)}} de {{c.getTotalPages(entity[0].nestedRows)}}
+                                        </span>
+                                        <button class="pagination-btn" ng-click="c.nextPage($index)" ng-disabled="c.getCurrentPage($index) === c.getTotalPages(entity[0].nestedRows)">
+                                            ▶
+                                        </button>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                </div> <!-- End of table-scroll-container -->
+            </div> <!-- End of table-wrapper -->
+</div>]]></template>
+    </sp_widget>
+    <sys_es_latest_script action="INSERT_OR_UPDATE">
+        <id>9b156f7cc3b1a6104070382d05013103</id>
+        <sys_created_by>admin</sys_created_by>
+        <sys_created_on>2025-06-10 10:33:05</sys_created_on>
+        <sys_id>87b1aea9c34662104070382d050131fb</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_updated_by>admin</sys_updated_by>
+        <sys_updated_on>2025-06-10 10:33:05</sys_updated_on>
+        <table>sp_widget</table>
+        <use_es_latest>true</use_es_latest>
+    </sys_es_latest_script>
+</record_update>

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sp_page">
+    <sp_page action="INSERT_OR_UPDATE">
+        <category>custom</category>
+        <css>.container{
+  width: 90%;
+  margin: auto;
+  max-width: 1800px;
+}
+</css>
+        <draft>false</draft>
+        <dynamic_title_structure/>
+        <human_readable_url_structure/>
+        <id>testing_page</id>
+        <internal>false</internal>
+        <omit_watcher>false</omit_watcher>
+        <public>false</public>
+        <roles/>
+        <seo_script/>
+        <short_description/>
+        <sys_class_name>sp_page</sys_class_name>
+        <sys_created_by>admin</sys_created_by>
+        <sys_created_on>2025-05-26 21:15:03</sys_created_on>
+        <sys_id>b8d4ef7cc3b1a6104070382d05013158</sys_id>
+        <sys_mod_count>5</sys_mod_count>
+        <sys_name>testing_page</sys_name>
+        <sys_package display_value="Testing 2" source="x_887770_testing_2">71c597a6c3a122104070382d05013154</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="Testing 2">71c597a6c3a122104070382d05013154</sys_scope>
+        <sys_update_name>sp_page_b8d4ef7cc3b1a6104070382d05013158</sys_update_name>
+        <sys_updated_by>admin</sys_updated_by>
+        <sys_updated_on>2025-07-10 16:32:36</sys_updated_on>
+        <title>Página de Pruebas</title>
+        <use_seo_script>false</use_seo_script>
+    </sp_page>
+    <sys_translated_text action="delete_multiple" query="documentkey=b8d4ef7cc3b1a6104070382d05013158"/>
+</record_update>
