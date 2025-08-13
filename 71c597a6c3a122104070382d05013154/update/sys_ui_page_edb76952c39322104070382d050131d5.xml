@@ -1,0 +1,290 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sys_ui_page">
+    <sys_ui_page action="INSERT_OR_UPDATE">
+        <category>general</category>
+        <client_script><![CDATA[	// Function to copy GeoJSON to clipboard
+	function copyToClipboard() {
+	//var geoJSONText = document.getElementById('geoJSONContent').innerText;
+	var geoJSONText = document.getElementById('geoJSONContent');
+	geoJSONText.select();
+	document.execCommand('copy');
+	alert('GeoJSON copied to clipboard!');
+	}
+			
+	// Function to recalculate perimeter based on selected type
+	function calculatePerimeter() {
+		var sectorType = document.getElementById('sectorType').value;
+		var action = sectorType === 'square' ? 'square' : 'radial';
+	}
+	
+	var selector = document.getElementById('type-select');
+	selector.addEventListener('change', function(event) {
+		var optionSelected = event.target.value;
+		var textArea = document.getElementById('geoJSONContent');
+		var parsedArray = [];
+		parsedArray = JSON.parse(recordsSelected.value);
+		console.log("parsedArray: " + parsedArray + "\nType: " + typeof(parsedArray));
+		for( var i = 0; i < parsedArray.length; i++ ){
+			console.log("Element: " + parsedArray[i]);
+		}
+		var ajaxUtils = new GlideAjax('geoJSONUtils_AJAX');
+		ajaxUtils.addParam('sysparm_name' , 'calculatePerimeter');
+		ajaxUtils.addParam('sysparm_locations', recordsSelected.value );
+		ajaxUtils.addParam('sysparm_type', 'perimeter' );
+		ajaxUtils.getXMLAnswer();
+		ajaxUtils.getXMLWait();
+		var result = ajaxUtils.getAnswer();
+		textArea.innerText = result;
+  		console.log(JSON.parse(result));
+		
+
+	});]]></client_script>
+        <description/>
+        <direct>false</direct>
+        <endpoint>x_887770_testing_2_GeoJSON.do</endpoint>
+        <html><![CDATA[<?xml version="1.0" encoding="utf-8" ?>
+<j:jelly trim="false" xmlns:j="jelly:core" xmlns:g="glide" xmlns:j2="null" xmlns:g2="null">
+	
+	<j:set var="jvar_locations" value="${sysparm_selected_locations}"/>
+	<g:evaluate>
+		gs.info("Running g:evaluate ...");
+		var locations = [];
+		var locationsStr = '';
+		var cmnLocations = new GlideRecord('cmn_location');
+		cmnLocations.addEncodedQuery('sys_idIN${jvar_locations}');
+		cmnLocations.query();
+		while( cmnLocations.next() ){
+			locations.push([
+				cmnLocations.getValue('longitude'),
+				cmnLocations.getValue('latitude')
+			]);
+		}
+		locationsStr = JSON.stringify(locations);
+		gs.info("Coordiantes: " + locations.toString());
+	</g:evaluate>	
+	<body>
+	<input type="hidden" id="recordsSelected" value="${locationsStr}" />
+    <div class="container">
+        <header class="header">
+            <h1>Geo JSON Creator</h1>
+        </header>
+        <main class="main-content">
+            <div class="left-panel">
+                <label for="type-select" class="select-label">Select Type</label>
+                <div class="dropdown-wrapper">
+                    <select id="type-select" class="type-dropdown">
+                        <option value="">Select an option</option>
+                        <option value="polygon">Polygon</option>
+                        <option value="square">Square</option>
+                        <option value="radial">Radial</option>
+                    </select>
+                </div>
+                <a target="_blank" href="https://geojson.io/"  class="geojson-link">Open GeoJSON page</a>
+            </div>
+            <div class="right-panel">
+                <textarea readonly="true" class="geojson-output" id="geoJSONContent" placeholder=""></textarea>
+                <button class="copy-button" onclick="copyToClipboard()" aria-label="Copy GeoJSON to clipboard">
+                    <!-- SVG icon resembling the one in the image (files/copy icon) -->
+                    <svg fill="#000000" height="800px" width="800px" version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" 
+	 viewBox="0 0 64 64" enable-background="new 0 0 64 64" xml:space="preserve">
+<g id="Text-files">
+	<path d="M53.9791489,9.1429005H50.010849c-0.0826988,0-0.1562004,0.0283995-0.2331009,0.0469999V5.0228
+		C49.7777481,2.253,47.4731483,0,44.6398468,0h-34.422596C7.3839517,0,5.0793519,2.253,5.0793519,5.0228v46.8432999
+		c0,2.7697983,2.3045998,5.0228004,5.1378999,5.0228004h6.0367002v2.2678986C16.253952,61.8274002,18.4702511,64,21.1954517,64
+		h32.783699c2.7252007,0,4.9414978-2.1725998,4.9414978-4.8432007V13.9861002
+		C58.9206467,11.3155003,56.7043495,9.1429005,53.9791489,9.1429005z M7.1110516,51.8661003V5.0228
+		c0-1.6487999,1.3938999-2.9909999,3.1062002-2.9909999h34.422596c1.7123032,0,3.1062012,1.3422,3.1062012,2.9909999v46.8432999
+		c0,1.6487999-1.393898,2.9911003-3.1062012,2.9911003h-34.422596C8.5049515,54.8572006,7.1110516,53.5149002,7.1110516,51.8661003z
+		 M56.8888474,59.1567993c0,1.550602-1.3055,2.8115005-2.9096985,2.8115005h-32.783699
+		c-1.6042004,0-2.9097996-1.2608986-2.9097996-2.8115005v-2.2678986h26.3541946
+		c2.8333015,0,5.1379013-2.2530022,5.1379013-5.0228004V11.1275997c0.0769005,0.0186005,0.1504021,0.0469999,0.2331009,0.0469999
+		h3.9682999c1.6041985,0,2.9096985,1.2609005,2.9096985,2.8115005V59.1567993z"/>
+	<path d="M38.6031494,13.2063999H16.253952c-0.5615005,0-1.0159006,0.4542999-1.0159006,1.0158005
+		c0,0.5615997,0.4544001,1.0158997,1.0159006,1.0158997h22.3491974c0.5615005,0,1.0158997-0.4542999,1.0158997-1.0158997
+		C39.6190491,13.6606998,39.16465,13.2063999,38.6031494,13.2063999z"/>
+	<path d="M38.6031494,21.3334007H16.253952c-0.5615005,0-1.0159006,0.4542999-1.0159006,1.0157986
+		c0,0.5615005,0.4544001,1.0159016,1.0159006,1.0159016h22.3491974c0.5615005,0,1.0158997-0.454401,1.0158997-1.0159016
+		C39.6190491,21.7877007,39.16465,21.3334007,38.6031494,21.3334007z"/>
+	<path d="M38.6031494,29.4603004H16.253952c-0.5615005,0-1.0159006,0.4543991-1.0159006,1.0158997
+		s0.4544001,1.0158997,1.0159006,1.0158997h22.3491974c0.5615005,0,1.0158997-0.4543991,1.0158997-1.0158997
+		S39.16465,29.4603004,38.6031494,29.4603004z"/>
+	<path d="M28.4444485,37.5872993H16.253952c-0.5615005,0-1.0159006,0.4543991-1.0159006,1.0158997
+		s0.4544001,1.0158997,1.0159006,1.0158997h12.1904964c0.5615025,0,1.0158005-0.4543991,1.0158005-1.0158997
+		S29.0059509,37.5872993,28.4444485,37.5872993z"/>
+</g>
+					</svg>
+                </button>
+            </div>
+        </main>
+    </div>
+	</body>
+
+	<style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 0;
+            background-color: #e9e9e9; /* Light grey background for the page */
+            padding: 20px 0px; /* To show the container clearly */
+            box-sizing: border-box;
+            color: #333333; /* Default text color */
+        }
+
+        .container {
+            max-width: 750px; /* Adjusted width */
+            margin: 20px auto;
+            background-color: #ffffff;
+            border: 1px solid #000000; /* Outer black border of the main component */
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1); /* Optional subtle shadow */
+			padding: 0px 0px;
+        }
+
+        .header {
+            background-color: #5D9CEC; /* Blue header background */
+            color: white;
+            padding: 12px 20px; /* Adjusted padding */
+            border-bottom: 1px solid #4A8ADF; /* Slightly darker border for header */
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 18px; /* Adjusted font size */
+            font-weight: bold;
+        }
+
+        .main-content {
+            display: flex;
+            padding: 20px;
+        }
+
+        .left-panel {
+            flex: 0 0 220px; /* Fixed width for left panel to control dropdown size */
+            padding-right: 20px;
+            box-sizing: border-box;
+        }
+
+        .select-label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .dropdown-wrapper {
+            margin-bottom: 25px; /* Space between dropdown and link */
+        }
+
+        .type-dropdown {
+            width: 100%; /* Take full width of its wrapper */
+            padding: 8px 10px;
+            border: 1px solid #BDBDBD; /* Grey border for select */
+            border-radius: 3px; /* Slight border radius */
+            background-color: white;
+            font-size: 14px;
+            color: #333;
+            -webkit-appearance: none; /* For custom arrow styling if needed later, but trying to match native */
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20width%3D%2210%22%20height%3D%225%22%20viewBox%3D%220%200%2010%205%22%20fill%3D%22none%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M0%200L5%205L10%200H0Z%22%20fill%3D%22%23666666%22/%3E%3C/svg%3E');
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            background-size: 10px 5px;
+            cursor: pointer;
+        }
+        
+        /* IE specific styling for select arrow */
+        .type-dropdown::-ms-expand {
+            display: none;
+        }
+
+
+        .type-dropdown option {
+            padding: 8px 10px; /* Note: styling options is limited */
+        }
+
+        .geojson-link {
+            display: inline-block;
+            font-size: 14px;
+            color: #007bff;
+            text-decoration: underline;
+        }
+
+        .geojson-link:hover {
+            color: #0056b3;
+        }
+
+        .right-panel {
+            flex: 1; /* Takes remaining space */
+            position: relative; /* For positioning the copy button */
+        }
+
+        .geojson-output {
+            width: 100%;
+            height: 280px; /* Adjusted height */
+            border: 1px solid #BDBDBD; /* Grey border for textarea */
+            border-radius: 3px; /* Slight border radius */
+            padding: 10px;
+            font-family: Consolas, "Courier New", monospace; /* Monospace font for JSON */
+            font-size: 13px;
+            resize: vertical; 
+            box-sizing: border-box;
+			background-color: #1D1D1D;
+            color: #E2E2E2;
+            line-height: 1.4;
+			overflow-y: scroll;
+			resize: none;
+			readonly:
+        }
+
+        .copy-button {
+            position: absolute;
+            top: 6px;
+            right: 6px;
+            background: none;
+            border: none;
+            padding: 4px;
+            cursor: pointer;
+            color: #6c757d; /* Icon color */
+            display: flex; /* For centering SVG if needed */
+            align-items: center;
+            justify-content: center;
+        }
+
+        .copy-button svg {
+            width: 14px; 
+            height: 14px;
+            display: block; 
+        }
+
+        .copy-button:hover svg {
+            color: #333333; /* Darken icon on hover */
+        }
+
+    </style>	
+	
+</j:jelly>]]></html>
+        <name>GeoJSON</name>
+        <processing_script/>
+        <sys_class_name>sys_ui_page</sys_class_name>
+        <sys_created_by>admin</sys_created_by>
+        <sys_created_on>2025-08-13 17:36:38</sys_created_on>
+        <sys_id>edb76952c39322104070382d050131d5</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_name>GeoJSON</sys_name>
+        <sys_package display_value="Testing 2" source="x_887770_testing_2">71c597a6c3a122104070382d05013154</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="Testing 2">71c597a6c3a122104070382d05013154</sys_scope>
+        <sys_update_name>sys_ui_page_edb76952c39322104070382d050131d5</sys_update_name>
+        <sys_updated_by>admin</sys_updated_by>
+        <sys_updated_on>2025-08-13 17:36:38</sys_updated_on>
+    </sys_ui_page>
+    <sys_es_latest_script action="INSERT_OR_UPDATE">
+        <id>edb76952c39322104070382d050131d5</id>
+        <sys_created_by>admin</sys_created_by>
+        <sys_created_on>2025-08-13 17:36:38</sys_created_on>
+        <sys_id>9f68e512c39322104070382d05013125</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_updated_by>admin</sys_updated_by>
+        <sys_updated_on>2025-08-13 17:36:38</sys_updated_on>
+        <table>sys_ui_page</table>
+        <use_es_latest>true</use_es_latest>
+    </sys_es_latest_script>
+</record_update>
